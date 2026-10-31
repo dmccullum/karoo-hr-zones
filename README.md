@@ -2,6 +2,8 @@
 
 A Karoo 3 data field that shows heart rate in the style of the Apple Watch workout view. A row of zone segments fills the field; the current zone expands into a pill labelled "ZONE n" (or "Zn" in small fields) with a pointer showing your position inside it, and the other zones are dimmed. A heart icon and the BPM number sit in the header. The field draws everything itself, using the system IBM Plex Sans Condensed font and the zone colors from Karoo's own HR zone gauge. In the profile page editor the preview sweeps between 85 and 190 bpm.
 
+<p align="center"><img src="docs/karoo-hr-zones.jpg" alt="The HR Zone Bar field on a Karoo 3, showing ZONE 1 at 111 bpm" width="360"></p>
+
 Zones come from the HR zones set in your Karoo rider profile. If no HR sensor is connected, the bar shows with no zone highlighted.
 
 ## Build

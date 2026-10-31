@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ExtensionInfo
+    displayName="@string/app_name"
+    icon="@drawable/ic_hr_zones"
+    id="hr-zones">
+    <DataType
+        description="@string/hr_zones_description"
+        displayName="@string/hr_zones"
+        graphical="true"
+        icon="@drawable/ic_hr_zones"
+        typeId="hr-zone-bar" />
+</ExtensionInfo>

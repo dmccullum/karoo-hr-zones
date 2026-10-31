@@ -8,7 +8,8 @@ import android.graphics.RectF
 
 /**
  * Draws one rounded segment per zone along the bottom of the field. The current zone is drawn
- * at full color with a marker at the rider's position inside it; other zones are dimmed.
+ * at full color with a ring marker (zone-colored fill, white ring, thin black outline) at the
+ * rider's position inside it; other zones are dimmed.
  * The rest of the bitmap is transparent so Karoo's own header and number show through.
  */
 object ZoneBarRenderer {
@@ -31,11 +32,11 @@ object ZoneBarRenderer {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         val inset = width * 0.05f
-        val barHeight = (height * 0.09f).coerceIn(6f, 18f)
-        val markerRadius = barHeight * 0.95f
-        val bottom = height - markerRadius - height * 0.04f
+        val barHeight = (height * 0.06f).coerceIn(5f, 12f)
+        val markerRadius = barHeight * 0.85f
+        val bottom = height - height * 0.05f - (markerRadius - barHeight / 2)
         val top = bottom - barHeight
-        val gap = barHeight * 0.5f
+        val gap = barHeight * 0.6f
         val segmentWidth = (width - 2 * inset - gap * (zoneCount - 1)) / zoneCount
         val radius = barHeight / 2
 
@@ -47,14 +48,28 @@ object ZoneBarRenderer {
         }
 
         if (position != null) {
+            val ringWidth = barHeight * 0.3f
+            val outlineWidth = barHeight * 0.12f
+            // Outer edge of the black outline, measured from the marker center
+            val extent = markerRadius + ringWidth / 2 + outlineWidth
             val left = inset + position.index * (segmentWidth + gap)
-            val cx = left + radius + (segmentWidth - 2 * radius) * position.fraction
+            val cx = if (segmentWidth >= 2 * extent) {
+                left + extent + (segmentWidth - 2 * extent) * position.fraction
+            } else {
+                left + segmentWidth / 2
+            }
             val cy = (top + bottom) / 2
             paint.alpha = 255
-            paint.color = Color.BLACK
+            paint.style = Paint.Style.FILL
+            paint.color = colorFor(position.index)
             canvas.drawCircle(cx, cy, markerRadius, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = ringWidth
             paint.color = Color.WHITE
-            canvas.drawCircle(cx, cy, markerRadius * 0.7f, paint)
+            canvas.drawCircle(cx, cy, markerRadius, paint)
+            paint.strokeWidth = outlineWidth
+            paint.color = Color.BLACK
+            canvas.drawCircle(cx, cy, markerRadius + ringWidth / 2 + outlineWidth / 2, paint)
         }
         return bitmap
     }

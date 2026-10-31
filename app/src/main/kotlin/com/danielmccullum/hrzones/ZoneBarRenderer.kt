@@ -27,6 +27,9 @@ object ZoneBarRenderer {
     private const val DIMMED_ALPHA = 110
     private const val PILL_WEIGHT = 3.2f
     private const val POINTER_BELOW = 0.45f
+    private const val SMALL_WIDTH = 320
+    private const val SIDE_LEFT = 11f
+    private const val SIDE_RIGHT = 9f
     private val KAROO_GREEN = Color.rgb(18, 154, 94)
 
     // Karoo's own number font ships in the system image
@@ -57,25 +60,29 @@ object ZoneBarRenderer {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val ink = if (dark) Color.WHITE else Color.BLACK
 
-        // Header proportions measured from Karoo's own fields: icon at top-left, title at top-right
-        val headerTop = h * 0.082f
-        val titleCap = h * 0.17f
-        val iconLeft = w * 0.023f
-        drawHeart(canvas, paint, RectF(iconLeft, h * 0.068f, iconLeft + h * 0.204f, h * 0.068f + h * 0.19f), KAROO_GREEN)
-        drawNumber(canvas, paint, hr, w, headerTop, headerTop + titleCap, w * 0.02f, ink)
+        // Header proportions measured from Karoo's own fields. Half-width cells put the title lower
+        // and slightly smaller than full-width ones; side margins are fixed pixels in both.
+        val small = w < SMALL_WIDTH
+        val headerTop = h * if (small) 0.17f else 0.082f
+        val titleCap = h * if (small) 0.15f else 0.17f
+        val iconTop = h * if (small) 0.153f else 0.061f
+        val iconWidth = h * if (small) 0.177f else 0.184f
+        val iconHeight = h * if (small) 0.17f else 0.177f
+        drawHeart(canvas, paint, RectF(SIDE_LEFT, iconTop, SIDE_LEFT + iconWidth, iconTop + iconHeight), KAROO_GREEN)
+        drawNumber(canvas, paint, hr, w, headerTop, headerTop + titleCap, SIDE_RIGHT, ink)
 
         // The pointer straddles the bottom edge of the pill: most of it overlaps the pill, the rest hangs below
         val pointerHeight = h * 0.13f
-        val rowTop = h * 0.337f
+        val rowTop = headerTop + titleCap + h * if (small) 0.07f else 0.085f
         val rowBottom = h - h * 0.04f - pointerHeight * POINTER_BELOW
         if (zoneCount > 0 && rowBottom > rowTop) {
             // Row edges line up with the icon on the left and the number on the right
-            drawZones(canvas, paint, w, zoneCount, position, rowTop, rowBottom, pointerHeight, iconLeft, w * 0.02f, ink)
+            drawZones(canvas, paint, w, zoneCount, position, rowTop, rowBottom, pointerHeight, SIDE_LEFT, SIDE_RIGHT, ink)
         }
         return bitmap
     }
 
-    /** Draws a heart filling exactly [box], matching the proportions of Karoo's own field icons. */
+    /** Draws an outline heart whose outer edge fills [box], like Karoo's own field icons. */
     private fun drawHeart(canvas: Canvas, paint: Paint, box: RectF, color: Int) {
         // Unit-square heart: every control point stays inside 0..1 so the curve spans the box exactly
         val path = Path().apply {
@@ -88,11 +95,16 @@ object ZoneBarRenderer {
             cubicTo(1f, 0.58f, 0.8f, 0.78f, 0.5f, 1f)
             close()
         }
-        path.transform(Matrix().apply { setRectToRect(RectF(0f, 0f, 1f, 1f), box, Matrix.ScaleToFit.FILL) })
-        paint.style = Paint.Style.FILL
+        val strokeWidth = box.height() * 0.115f
+        val inner = RectF(box).apply { inset(strokeWidth / 2, strokeWidth / 2) }
+        path.transform(Matrix().apply { setRectToRect(RectF(0f, 0f, 1f, 1f), inner, Matrix.ScaleToFit.FILL) })
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = strokeWidth
+        paint.strokeJoin = Paint.Join.ROUND
         paint.alpha = 255
         paint.color = color
         canvas.drawPath(path, paint)
+        paint.strokeJoin = Paint.Join.MITER
     }
 
     private fun drawNumber(canvas: Canvas, paint: Paint, hr: Int?, width: Int, top: Float, bottom: Float, pad: Float, ink: Int) {

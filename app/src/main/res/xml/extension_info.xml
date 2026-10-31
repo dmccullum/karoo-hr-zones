@@ -9,4 +9,10 @@
         graphical="true"
         icon="@drawable/ic_hr_zones"
         typeId="hr-zone-bar" />
+    <DataType
+        description="@string/power_zones_description"
+        displayName="@string/power_zones"
+        graphical="true"
+        icon="@drawable/ic_power_zones"
+        typeId="power-zone-bar" />
 </ExtensionInfo>

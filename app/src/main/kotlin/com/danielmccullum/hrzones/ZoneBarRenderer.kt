@@ -20,7 +20,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Draws the whole field: a header like Karoo's own (icon plus the heart rate in the title slot) and,
+ * Draws the whole field: a header like Karoo's own (icon plus the current value in the title slot) and,
  * below it, a row of zone segments in the style of the Apple Watch workout view. The current zone
  * expands into a pill labelled "ZONE n" with a pointer showing the position inside the zone.
  *
@@ -29,14 +29,19 @@ import kotlin.math.min
  * metrics, line spacing and vertical centring match. The bitmap is transparent so Karoo's card
  * shows through.
  */
+/** Header icon drawn next to the value. */
+enum class ZoneIcon { HEART, BOLT }
+
 object ZoneBarRenderer {
-    // Z1..Z5 sampled from Karoo's own HR zone field; zones beyond five reuse the last color
+    // Z1..Z5 sampled from Karoo's own HR zone field, Z6 and Z7 added for power; zones beyond seven reuse the last color
     private val zoneColors = intArrayOf(
         Color.rgb(0x60, 0xEE, 0xB2), // mint
         Color.rgb(0x00, 0xB9, 0x88), // teal green
         Color.rgb(0xFF, 0xF5, 0x00), // yellow
         Color.rgb(0xFB, 0x8C, 0x65), // salmon
         Color.rgb(0xD6, 0x04, 0x04), // red
+        Color.rgb(0x9B, 0x3D, 0xE0), // purple
+        Color.rgb(0xA8, 0x00, 0x6E), // deep magenta
     )
     private const val DIMMED_ALPHA = 110
     private const val PILL_WEIGHT = 3.2f
@@ -65,9 +70,11 @@ object ZoneBarRenderer {
         }
     }
 
-    // Path data copied from the ride app's ic_heart (38x38 viewport, outline drawn with even-odd fill)
-    private const val HEART_VIEWPORT = 38f
-    private const val HEART_GLYPH_INSET = 4f
+    // Header icons share a 38x38 viewport and a 4 unit inset around the glyph
+    private const val ICON_VIEWPORT = 38f
+    private const val ICON_GLYPH_INSET = 4f
+
+    // Path data copied from the ride app's ic_heart (outline drawn with even-odd fill)
     private const val HEART_PATH_DATA =
         "M29.55,16.936l-10.568,12.43 -10.568,-12.43 -0.007,0.006c-2.141,-2.518 -1.827,-6.301 0.7,-8.433 " +
             "2.355,-1.99 5.814,-1.852 8.005,0.216 0.16,0.15 0.312,0.31 0.457,0.48 0.882,1.04 1.348,2.293 " +
@@ -77,6 +84,11 @@ object ZoneBarRenderer {
             "-3.79,3.2 -4.258,8.854 -1.048,12.63l12.855,15.12 12.854,-15.12c3.21,-3.776 2.741,-9.43 -1.048,-12.63z"
     private val heartPath: Path by lazy { PathParser.createPathFromPathData(HEART_PATH_DATA) }
 
+    // Lightning bolt drawn as a stroked outline to match the heart
+    private const val BOLT_PATH_DATA = "M12,5L12,20.4L16.2,20.4L16.2,33L26,16.2L20.4,16.2L26,5Z"
+    private const val BOLT_STROKE = 3f
+    private val boltPath: Path by lazy { PathParser.createPathFromPathData(BOLT_PATH_DATA) }
+
     fun colorFor(index: Int): Int = zoneColors[index.coerceAtMost(zoneColors.lastIndex)]
 
     fun render(
@@ -84,7 +96,8 @@ object ZoneBarRenderer {
         config: ViewConfig,
         zoneCount: Int,
         position: ZonePosition?,
-        hr: Int?,
+        value: Int?,
+        icon: ZoneIcon,
         dark: Boolean,
     ): Bitmap {
         val (width, height) = config.viewSize
@@ -98,11 +111,11 @@ object ZoneBarRenderer {
 
         val (columns, rows) = config.gridSize
         val constraints = KarooConstraints.forGrid(columns, rows, config.textSize * d)
-        val headerBottom = drawHeader(context, canvas, paint, w, d, constraints, config.alignment, hr, ink)
+        val headerBottom = drawHeader(context, canvas, paint, w, d, constraints, config.alignment, value, icon, ink)
 
-        // The row lines up with the heart glyph on the left and the title's edge on the right
+        // The row lines up with the icon glyph on the left and the title's edge on the right
         val side = HEADER_SIDE_DP * d
-        val rowLeft = side + HEART_GLYPH_INSET * constraints.labelSize / HEART_VIEWPORT
+        val rowLeft = side + ICON_GLYPH_INSET * constraints.labelSize / ICON_VIEWPORT
         val pointerHeight = POINTER_HEIGHT_DP * d
         val row = RectF(
             rowLeft,
@@ -125,7 +138,8 @@ object ZoneBarRenderer {
         d: Float,
         constraints: KarooConstraints,
         alignment: ViewConfig.Alignment,
-        hr: Int?,
+        value: Int?,
+        icon: ZoneIcon,
         ink: Int,
     ): Float {
         val label = constraints.labelSize
@@ -140,7 +154,7 @@ object ZoneBarRenderer {
             setLines(if (constraints.singleLineLabel) 1 else 2)
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            text = hr?.toString() ?: "--"
+            text = value?.toString() ?: "--"
         }
         title.measure(
             View.MeasureSpec.makeMeasureSpec((width - 2 * side - label - iconGap).toInt().coerceAtLeast(1), View.MeasureSpec.AT_MOST),
@@ -164,7 +178,7 @@ object ZoneBarRenderer {
             ViewConfig.Alignment.RIGHT -> side to (width - side - titleWidth)
         }
 
-        drawHeart(canvas, paint, iconLeft, iconTop, label)
+        drawIcon(canvas, paint, icon, iconLeft, iconTop, label)
         title.layout(0, 0, titleWidth.toInt(), titleHeight.toInt())
         canvas.save()
         canvas.translate(titleLeft, titleTop)
@@ -173,21 +187,30 @@ object ZoneBarRenderer {
         return headerHeight
     }
 
-    /** Draws Karoo's own outline heart scaled into a square box of [size] px, like its centerInside icons. */
-    private fun drawHeart(canvas: Canvas, paint: Paint, left: Float, top: Float, size: Float) {
-        val path = Path(heartPath).apply {
-            fillType = Path.FillType.EVEN_ODD
+    /** Draws the header icon in Karoo's green, scaled into a square box of [size] px like its centerInside icons. */
+    private fun drawIcon(canvas: Canvas, paint: Paint, icon: ZoneIcon, left: Float, top: Float, size: Float) {
+        val scale = size / ICON_VIEWPORT
+        val source = if (icon == ZoneIcon.HEART) heartPath else boltPath
+        val path = Path(source).apply {
+            if (icon == ZoneIcon.HEART) fillType = Path.FillType.EVEN_ODD
             transform(
                 Matrix().apply {
-                    postScale(size / HEART_VIEWPORT, size / HEART_VIEWPORT)
+                    postScale(scale, scale)
                     postTranslate(left, top)
                 },
             )
         }
-        paint.style = Paint.Style.FILL
         paint.alpha = 255
         paint.color = KAROO_GREEN
+        if (icon == ZoneIcon.HEART) {
+            paint.style = Paint.Style.FILL
+        } else {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = BOLT_STROKE * scale
+            paint.strokeJoin = Paint.Join.ROUND
+        }
         canvas.drawPath(path, paint)
+        paint.strokeJoin = Paint.Join.MITER
     }
 
     private fun drawZones(

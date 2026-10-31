@@ -1,5 +1,7 @@
 <resources>
-    <string name="app_name">HR Zones</string>
+    <string name="app_name">Zone Bars</string>
     <string name="hr_zones">HR Zone Bar</string>
     <string name="hr_zones_description">Heart rate with a colored bar for each zone and a marker showing your position in the current zone</string>
+    <string name="power_zones">Power Zone Bar</string>
+    <string name="power_zones_description">3-second average power with a colored bar for each zone and a marker showing your position in the current zone</string>
 </resources>

@@ -12,8 +12,8 @@ android {
         applicationId = "com.danielmccullum.hrzones"
         minSdk = 23
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // Release keystore lives outside the repo; its path and passwords come from ~/.gradle/gradle.properties.

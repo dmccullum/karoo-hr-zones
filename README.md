@@ -1,10 +1,11 @@
-# HR Zones for Karoo
+# Zone Bars for Karoo
 
-A Karoo 3 data field that shows your heart rate zone, styled after the Apple Watch workout view.
+Karoo 3 data fields that show your current zone, styled after the Apple Watch workout view.
+
+- **HR Zone Bar**: heart rate, with the HR zones from your Karoo rider profile.
+- **Power Zone Bar**: 3-second average power, with the power zones from your Karoo rider profile.
 
 <p align="center"><img src="docs/karoo-hr-zones.jpg" alt="The HR Zone Bar field on a Karoo 3, showing ZONE 1 at 111 bpm" width="360"></p>
-
-Zones come from the HR zones in your Karoo rider profile.
 
 ## Install
 
@@ -13,7 +14,7 @@ Download the APK from the [latest release](https://github.com/dmccullum/karoo-hr
 1. On the Karoo: Settings → About → tap the build number 7 times, then enable USB debugging in Developer options.
 2. Connect it over USB and accept the debugging prompt on the Karoo.
 3. Run `adb install -r karoo-hr-zones-<version>.apk` (use the file name you downloaded).
-4. Edit a ride profile page, tap a field, and pick **HR Zones → HR Zone Bar**.
+4. Edit a ride profile page, tap a field, and pick **Zone Bars → HR Zone Bar** or **Zone Bars → Power Zone Bar**.
 
 Upgrading from 1.0: release 1.1 is signed with a new key, so Android won't install it over 1.0. Run `adb uninstall com.danielmccullum.hrzones` first, then install 1.1 and add the field to your pages again. Later updates install over 1.1 with `adb install -r`.
 
@@ -33,10 +34,11 @@ Requires JDK 17 and the Android SDK (platform 35). Android Studio is the easiest
 
 ## Files
 
-- `HrZoneBarDataType.kt`: streams heart rate and renders the field (including the editor preview sweep)
-- `ZoneBarRenderer.kt`: draws the header, zone segments, pill and pointer; zone colors are set here
+- `HrZonesExtension.kt`: registers the `hr-zone-bar` and `power-zone-bar` fields
+- `ZoneBarDataType.kt`: streams the source value (heart rate or 3-second average power) and renders the field, including the editor preview sweep
+- `ZoneBarRenderer.kt`: draws the header, zone segments, pill and pointer; zone colors Z1 to Z7 are set here
 - `KarooLayout.kt`: Karoo's own header text and icon sizes for each field size
-- `ZonePosition.kt`: maps a BPM value to a zone index and position within that zone
+- `ZonePosition.kt`: maps a value to a zone index and position within that zone
 
 ## License
 

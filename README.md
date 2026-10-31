@@ -27,3 +27,7 @@ Requires JDK 17 and the Android SDK (install Android Studio).
 - `HrZoneBarDataType.kt`: streams heart rate and renders the field (including the editor preview sweep)
 - `ZoneBarRenderer.kt`: draws the header, zone segments, pill and pointer; zone colors are set here
 - `ZonePosition.kt`: maps a BPM value to a zone index and position within that zone
+
+## License
+
+Copyright (C) 2026 Daniel McCullum. Released under the [GNU General Public License v3.0](LICENSE).

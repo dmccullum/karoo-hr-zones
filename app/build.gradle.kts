@@ -16,9 +16,23 @@ android {
         versionName = "1.1"
     }
 
+    // Release keystore lives outside the repo; its path and passwords come from ~/.gradle/gradle.properties.
+    // Without them (a fresh checkout, CI) release builds fall back to the debug key.
+    val releaseStoreFile = providers.gradleProperty("hrzones.storeFile").orNull
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = providers.gradleProperty("hrzones.storePassword").get()
+                keyAlias = providers.gradleProperty("hrzones.keyAlias").get()
+                keyPassword = providers.gradleProperty("hrzones.keyPassword").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = false
         }
     }

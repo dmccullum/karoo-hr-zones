@@ -3,74 +3,210 @@ package com.danielmccullum.hrzones
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
 
 /**
- * Draws one rounded segment per zone along the bottom of the field. The current zone is drawn
- * at full color with a ring marker (zone-colored fill, white ring, thin black outline) at the
- * rider's position inside it; other zones are dimmed.
- * The rest of the bitmap is transparent so Karoo's own header and number show through.
+ * Draws the whole field: the heart rate number on top and, below it, a row of zone segments in
+ * the style of the Apple Watch workout view. The current zone expands into a pill labelled
+ * "ZONE n" with a bolt, and a small pointer under the pill shows the position inside the zone.
+ * The bitmap is transparent so Karoo's own card and header show through.
  */
 object ZoneBarRenderer {
-    // Z1..Z5; zones beyond five reuse the last color
+    // Z1..Z5 sampled from Karoo's own HR zone field; zones beyond five reuse the last color
     private val zoneColors = intArrayOf(
-        Color.rgb(0x8E, 0x8E, 0x93), // grey
-        Color.rgb(0x0A, 0x84, 0xFF), // blue
-        Color.rgb(0x30, 0xD1, 0x58), // green
-        Color.rgb(0xFF, 0x9F, 0x0A), // orange
-        Color.rgb(0xFF, 0x37, 0x5F), // red
+        Color.rgb(0x60, 0xEE, 0xB2), // mint
+        Color.rgb(0x00, 0xB9, 0x88), // teal green
+        Color.rgb(0xFF, 0xF5, 0x00), // yellow
+        Color.rgb(0xFB, 0x8C, 0x65), // salmon
+        Color.rgb(0xD6, 0x04, 0x04), // red
     )
-    private const val DIMMED_ALPHA = 80
+    private const val DIMMED_ALPHA = 110
+    private const val PILL_WEIGHT = 3.2f
+    private const val POINTER_BELOW = 0.45f
+    private val KAROO_GREEN = Color.rgb(18, 154, 94)
+
+    // Karoo's own number font ships in the system image
+    private val numberTypeface: Typeface by lazy { systemFont("IBMPlexSansCondensed-Medium.otf", Typeface.DEFAULT_BOLD) }
+    private val labelTypeface: Typeface by lazy { systemFont("IBMPlexSansCondensed-Medium.otf", Typeface.DEFAULT_BOLD) }
+
+    private fun systemFont(file: String, fallback: Typeface): Typeface =
+        try {
+            Typeface.createFromFile("/system/fonts/$file")
+        } catch (_: Exception) {
+            fallback
+        }
 
     fun colorFor(index: Int): Int = zoneColors[index.coerceAtMost(zoneColors.lastIndex)]
 
-    fun render(width: Int, height: Int, zoneCount: Int, position: ZonePosition?): Bitmap {
-        val bitmap = Bitmap.createBitmap(width.coerceAtLeast(1), height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-        if (zoneCount == 0) return bitmap
+    fun render(
+        width: Int,
+        height: Int,
+        zoneCount: Int,
+        position: ZonePosition?,
+        hr: Int?,
+        dark: Boolean,
+    ): Bitmap {
+        val w = width.coerceAtLeast(1)
+        val h = height.coerceAtLeast(1)
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val ink = if (dark) Color.WHITE else Color.BLACK
 
-        val inset = width * 0.05f
-        val barHeight = (height * 0.06f).coerceIn(5f, 12f)
-        val markerRadius = barHeight * 0.85f
-        val bottom = height - height * 0.05f - (markerRadius - barHeight / 2)
-        val top = bottom - barHeight
-        val gap = barHeight * 0.6f
-        val segmentWidth = (width - 2 * inset - gap * (zoneCount - 1)) / zoneCount
-        val radius = barHeight / 2
+        // Header proportions measured from Karoo's own fields: icon at top-left, title at top-right
+        val headerTop = h * 0.082f
+        val titleCap = h * 0.17f
+        val iconLeft = w * 0.023f
+        drawHeart(canvas, paint, RectF(iconLeft, h * 0.068f, iconLeft + h * 0.204f, h * 0.068f + h * 0.19f), KAROO_GREEN)
+        drawNumber(canvas, paint, hr, w, headerTop, headerTop + titleCap, w * 0.02f, ink)
 
-        for (i in 0 until zoneCount) {
-            val left = inset + i * (segmentWidth + gap)
-            paint.color = colorFor(i)
-            paint.alpha = if (i == position?.index) 255 else DIMMED_ALPHA
-            canvas.drawRoundRect(RectF(left, top, left + segmentWidth, bottom), radius, radius, paint)
-        }
-
-        if (position != null) {
-            val ringWidth = barHeight * 0.3f
-            val outlineWidth = barHeight * 0.12f
-            // Outer edge of the black outline, measured from the marker center
-            val extent = markerRadius + ringWidth / 2 + outlineWidth
-            val left = inset + position.index * (segmentWidth + gap)
-            val cx = if (segmentWidth >= 2 * extent) {
-                left + extent + (segmentWidth - 2 * extent) * position.fraction
-            } else {
-                left + segmentWidth / 2
-            }
-            val cy = (top + bottom) / 2
-            paint.alpha = 255
-            paint.style = Paint.Style.FILL
-            paint.color = colorFor(position.index)
-            canvas.drawCircle(cx, cy, markerRadius, paint)
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = ringWidth
-            paint.color = Color.WHITE
-            canvas.drawCircle(cx, cy, markerRadius, paint)
-            paint.strokeWidth = outlineWidth
-            paint.color = Color.BLACK
-            canvas.drawCircle(cx, cy, markerRadius + ringWidth / 2 + outlineWidth / 2, paint)
+        // The pointer straddles the bottom edge of the pill: most of it overlaps the pill, the rest hangs below
+        val pointerHeight = h * 0.13f
+        val rowTop = h * 0.337f
+        val rowBottom = h - h * 0.04f - pointerHeight * POINTER_BELOW
+        if (zoneCount > 0 && rowBottom > rowTop) {
+            // Row edges line up with the icon on the left and the number on the right
+            drawZones(canvas, paint, w, zoneCount, position, rowTop, rowBottom, pointerHeight, iconLeft, w * 0.02f, ink)
         }
         return bitmap
     }
+
+    /** Draws a heart filling exactly [box], matching the proportions of Karoo's own field icons. */
+    private fun drawHeart(canvas: Canvas, paint: Paint, box: RectF, color: Int) {
+        // Unit-square heart: every control point stays inside 0..1 so the curve spans the box exactly
+        val path = Path().apply {
+            moveTo(0.5f, 1f)
+            cubicTo(0.2f, 0.78f, 0f, 0.58f, 0f, 0.3f)
+            cubicTo(0f, 0.12f, 0.13f, 0f, 0.27f, 0f)
+            cubicTo(0.4f, 0f, 0.47f, 0.08f, 0.5f, 0.18f)
+            cubicTo(0.53f, 0.08f, 0.6f, 0f, 0.73f, 0f)
+            cubicTo(0.87f, 0f, 1f, 0.12f, 1f, 0.3f)
+            cubicTo(1f, 0.58f, 0.8f, 0.78f, 0.5f, 1f)
+            close()
+        }
+        path.transform(Matrix().apply { setRectToRect(RectF(0f, 0f, 1f, 1f), box, Matrix.ScaleToFit.FILL) })
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.color = color
+        canvas.drawPath(path, paint)
+    }
+
+    private fun drawNumber(canvas: Canvas, paint: Paint, hr: Int?, width: Int, top: Float, bottom: Float, pad: Float, ink: Int) {
+        val text = hr?.toString() ?: "--"
+        paint.style = Paint.Style.FILL
+        paint.color = ink
+        paint.typeface = numberTypeface
+        paint.textAlign = Paint.Align.RIGHT
+        // Size by digit height, then shrink if the text would not fit across the field
+        paint.textSize = 100f
+        val bounds = android.graphics.Rect()
+        paint.getTextBounds("8", 0, 1, bounds)
+        val capHeight = bounds.height().coerceAtLeast(1)
+        var size = 100f * (bottom - top) / capHeight
+        paint.textSize = size
+        val maxWidth = width - 2 * pad
+        val measured = paint.measureText(text)
+        if (measured > maxWidth) {
+            size *= maxWidth / measured
+            paint.textSize = size
+        }
+        canvas.drawText(text, width - pad, bottom, paint)
+    }
+
+    private fun drawZones(
+        canvas: Canvas,
+        paint: Paint,
+        width: Int,
+        zoneCount: Int,
+        position: ZonePosition?,
+        top: Float,
+        bottom: Float,
+        pointerHeight: Float,
+        padLeft: Float,
+        padRight: Float,
+        ink: Int,
+    ) {
+        val rowHeight = bottom - top
+        val gap = rowHeight * 0.05f
+        val radius = rowHeight * 0.3f
+        val current = position?.index
+        val totalWeight = (zoneCount - 1) + if (current != null) PILL_WEIGHT else 1f
+        val unit = (width - padLeft - padRight - gap * (zoneCount - 1)) / totalWeight
+
+        var left = padLeft
+        for (i in 0 until zoneCount) {
+            val segmentWidth = unit * if (i == current) PILL_WEIGHT else 1f
+            val rect = RectF(left, top, left + segmentWidth, bottom)
+            paint.style = Paint.Style.FILL
+            paint.color = colorFor(i)
+            paint.alpha = if (i == current) 255 else DIMMED_ALPHA
+            canvas.drawRoundRect(rect, radius, radius, paint)
+            if (i == current && position != null) {
+                drawPillContent(canvas, paint, rect, i, colorFor(i))
+                drawPointer(canvas, paint, rect, position.fraction, bottom - pointerHeight * (1 - POINTER_BELOW), pointerHeight, ink)
+            }
+            left += segmentWidth + gap
+        }
+    }
+
+    private fun drawPillContent(canvas: Canvas, paint: Paint, rect: RectF, index: Int, fill: Int) {
+        val label = "ZONE ${index + 1}"
+        val short = "Z${index + 1}"
+        val textColor = if (luminance(fill) > 0.45f) Color.BLACK else Color.WHITE
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.color = textColor
+        paint.typeface = labelTypeface
+        paint.textAlign = Paint.Align.LEFT
+
+        var textSize = rect.height() * 0.4f
+        paint.textSize = textSize
+        var text = label
+        var textWidth = paint.measureText(text)
+        val available = rect.width() * 0.88f
+        // "ZONE n" only when it fits with room to spare; smaller fields get "Zn"
+        if (textWidth > rect.width() * 0.75f) {
+            text = short
+            textWidth = paint.measureText(text)
+        }
+        if (textWidth > available) {
+            textSize *= available / textWidth
+            paint.textSize = textSize
+            textWidth = paint.measureText(text)
+        }
+
+        val baseline = rect.centerY() - (paint.ascent() + paint.descent()) / 2
+        canvas.drawText(text, rect.centerX() - textWidth / 2, baseline, paint)
+    }
+
+    private fun drawPointer(canvas: Canvas, paint: Paint, pill: RectF, fraction: Float, top: Float, height: Float, ink: Int) {
+        val halfWidth = height * 0.9f
+        val minX = pill.left + halfWidth + pill.height() * 0.15f
+        val maxX = pill.right - halfWidth - pill.height() * 0.15f
+        val cx = if (maxX > minX) minX + (maxX - minX) * fraction else pill.centerX()
+        val path = Path().apply {
+            moveTo(cx, top)
+            lineTo(cx - halfWidth, top + height)
+            lineTo(cx + halfWidth, top + height)
+            close()
+        }
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.color = ink
+        canvas.drawPath(path, paint)
+        // Contrasting edge keeps the pointer visible against both the pill and the card
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = height * 0.12f
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.color = if (ink == Color.WHITE) Color.BLACK else Color.WHITE
+        canvas.drawPath(path, paint)
+        paint.strokeJoin = Paint.Join.MITER
+    }
+
+    private fun luminance(color: Int): Float =
+        (0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color)) / 255f
 }

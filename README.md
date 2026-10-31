@@ -1,6 +1,6 @@
 # HR Zones for Karoo
 
-A Karoo 3 data field that shows heart rate with one colored bar segment per HR zone. The current zone is drawn at full color with a marker at your position inside it; the other zones are dimmed. Karoo draws the field header and the BPM number itself, so the text matches built-in fields.
+A Karoo 3 data field that shows heart rate in the style of the Apple Watch workout view. A row of zone segments fills the field; the current zone expands into a pill labelled "ZONE n" (or "Zn" in small fields) with a pointer showing your position inside it, and the other zones are dimmed. A heart icon and the BPM number sit in the header. The field draws everything itself, using the system IBM Plex Sans Condensed font and the zone colors from Karoo's own HR zone gauge. In the profile page editor the preview sweeps between 85 and 190 bpm.
 
 Zones come from the HR zones set in your Karoo rider profile. If no HR sensor is connected, the bar shows with no zone highlighted.
 
@@ -24,6 +24,6 @@ Requires JDK 17 and the Android SDK (install Android Studio).
 
 ## Files
 
-- `HrZoneBarDataType.kt`: streams heart rate and renders the field
-- `ZoneBarRenderer.kt`: draws the zone segments and marker; zone colors are set here
+- `HrZoneBarDataType.kt`: streams heart rate and renders the field (including the editor preview sweep)
+- `ZoneBarRenderer.kt`: draws the header, zone segments, pill and pointer; zone colors are set here
 - `ZonePosition.kt`: maps a BPM value to a zone index and position within that zone

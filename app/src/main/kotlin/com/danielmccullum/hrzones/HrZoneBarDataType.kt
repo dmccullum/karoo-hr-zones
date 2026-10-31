@@ -1,6 +1,7 @@
 package com.danielmccullum.hrzones
 
 import android.content.Context
+import android.content.res.Configuration
 import androidx.compose.ui.unit.DpSize
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
@@ -11,7 +12,6 @@ import androidx.glance.layout.ContentScale
 import androidx.glance.layout.fillMaxSize
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.DataTypeImpl
-import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.ViewEmitter
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.StreamState
@@ -20,9 +20,10 @@ import io.hammerhead.karooext.models.UserProfile
 import io.hammerhead.karooext.models.ViewConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -33,45 +34,33 @@ class HrZoneBarDataType(
 ) : DataTypeImpl(extension, "hr-zone-bar") {
     private val glance = GlanceRemoteViews()
 
-    // Re-emit heart rate under this type's id so Karoo draws its own header and number
-    override fun startStream(emitter: Emitter<StreamState>) {
-        val job = CoroutineScope(Dispatchers.IO).launch {
-            karooSystem.streamDataFlow(DataType.Type.HEART_RATE).collect { state ->
-                val hr = (state as? StreamState.Streaming)?.dataPoint?.singleValue
-                emitter.onNext(
-                    if (state is StreamState.Streaming && hr != null) {
-                        state.copy(
-                            dataPoint = state.dataPoint.copy(
-                                dataTypeId = dataTypeId,
-                                values = mapOf(DataType.Field.SINGLE to hr),
-                            ),
-                        )
-                    } else {
-                        state
-                    },
-                )
-            }
-        }
-        emitter.setCancellable { job.cancel() }
-    }
-
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
-        emitter.onNext(UpdateGraphicConfig(formatDataTypeId = DataType.Type.HEART_RATE))
+        emitter.onNext(UpdateGraphicConfig(showHeader = false))
         val (width, height) = config.viewSize
+        val dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
         val job = CoroutineScope(Dispatchers.IO).launch {
             val hrFlow = if (config.preview) {
-                flowOf(PREVIEW_HR)
+                // Editor preview: tick a counter, turned into a sweep through the zones below
+                flow {
+                    var tick = 0
+                    while (true) {
+                        emit(tick++)
+                        delay(PREVIEW_TICK_MS)
+                    }
+                }
             } else {
                 karooSystem.streamDataFlow(DataType.Type.HEART_RATE)
                     .map { (it as? StreamState.Streaming)?.dataPoint?.singleValue?.toInt() }
             }
-            combine(hrFlow, karooSystem.consumerFlow<UserProfile>()) { hr, profile ->
+            combine(hrFlow, karooSystem.consumerFlow<UserProfile>()) { value, profile ->
                 val zones = profile.heartRateZones
-                Pair(zones.size, hr?.let { zonePosition(it, zones) })
+                val hr = if (config.preview) previewHr(value ?: 0) else value
+                Triple(hr, zones.size, hr?.let { zonePosition(it, zones) })
             }
                 .distinctUntilChanged()
-                .collect { (zoneCount, position) ->
-                    val bitmap = ZoneBarRenderer.render(width, height, zoneCount, position)
+                .collect { (hr, zoneCount, position) ->
+                    val bitmap = ZoneBarRenderer.render(width, height, zoneCount, position, hr, dark)
                     val result = glance.compose(context, DpSize.Unspecified) {
                         Image(
                             provider = ImageProvider(bitmap),
@@ -87,6 +76,16 @@ class HrZoneBarDataType(
     }
 
     private companion object {
-        const val PREVIEW_HR = 148
+        const val PREVIEW_HR_MIN = 85
+        const val PREVIEW_HR_MAX = 190
+        const val PREVIEW_TICK_MS = 250L
+        const val PREVIEW_BPM_PER_TICK = 2
+
+        /** Sweeps up and down between [PREVIEW_HR_MIN] and [PREVIEW_HR_MAX] for the editor preview. */
+        fun previewHr(tick: Int): Int {
+            val span = PREVIEW_HR_MAX - PREVIEW_HR_MIN
+            val phase = (tick * PREVIEW_BPM_PER_TICK) % (2 * span)
+            return PREVIEW_HR_MIN + if (phase < span) phase else 2 * span - phase
+        }
     }
 }

@@ -4,3 +4,12 @@ app/build/
 local.properties
 .idea/
 *.iml
+
+# Signing keys and build outputs must never be committed
+*.jks
+*.keystore
+*.apk
+*.aab
+
+# macOS
+.DS_Store

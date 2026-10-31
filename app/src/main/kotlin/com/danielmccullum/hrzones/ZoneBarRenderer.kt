@@ -1,5 +1,6 @@
 package com.danielmccullum.hrzones
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -8,12 +9,25 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.text.TextUtils
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.widget.TextView
+import androidx.core.graphics.PathParser
+import io.hammerhead.karooext.models.ViewConfig
+import kotlin.math.max
+import kotlin.math.min
 
 /**
- * Draws the whole field: the heart rate number on top and, below it, a row of zone segments in
- * the style of the Apple Watch workout view. The current zone expands into a pill labelled
- * "ZONE n" with a bolt, and a small pointer under the pill shows the position inside the zone.
- * The bitmap is transparent so Karoo's own card and header show through.
+ * Draws the whole field: a header like Karoo's own (icon plus the heart rate in the title slot) and,
+ * below it, a row of zone segments in the style of the Apple Watch workout view. The current zone
+ * expands into a pill labelled "ZONE n" with a pointer showing the position inside the zone.
+ *
+ * Header geometry follows the ride app's own layout: sizes come from [KarooConstraints], dp values
+ * use the device density, and the title is a real TextView set up like Karoo's header title so font
+ * metrics, line spacing and vertical centring match. The bitmap is transparent so Karoo's card
+ * shows through.
  */
 object ZoneBarRenderer {
     // Z1..Z5 sampled from Karoo's own HR zone field; zones beyond five reuse the last color
@@ -27,178 +41,221 @@ object ZoneBarRenderer {
     private const val DIMMED_ALPHA = 110
     private const val PILL_WEIGHT = 3.2f
     private const val POINTER_BELOW = 0.45f
-    private const val SMALL_WIDTH = 320
-    private const val SIDE_LEFT = 11f
-    private const val SIDE_RIGHT = 9f
     private val KAROO_GREEN = Color.rgb(18, 154, 94)
 
-    // Karoo's own number font ships in the system image
-    private val numberTypeface: Typeface by lazy { systemFont("IBMPlexSansCondensed-Medium.otf", Typeface.DEFAULT_BOLD) }
-    private val labelTypeface: Typeface by lazy { systemFont("IBMPlexSansCondensed-Medium.otf", Typeface.DEFAULT_BOLD) }
+    // Karoo's header: 1 dp padding plus 3 dp margin each side, 3 dp above and below the icon, 22 dp minimum
+    private const val HEADER_SIDE_DP = 4f
+    private const val HEADER_ICON_MARGIN_DP = 3f
+    private const val HEADER_MIN_HEIGHT_DP = 22f
+    private const val HEADER_DEFAULT_LINE_SPACING = 0.7f
 
-    private fun systemFont(file: String, fallback: Typeface): Typeface =
+    // Zone row, in dp so it looks the same in every field size
+    private const val ROW_TOP_GAP_DP = 2f
+    private const val ROW_BOTTOM_PAD_DP = 4f
+    private const val SEGMENT_GAP_DP = 2.2f
+    private const val SEGMENT_RADIUS_DP = 13f
+    private const val POINTER_HEIGHT_DP = 10f
+
+    // Karoo's own font ships in the system image
+    private val labelTypeface: Typeface by lazy {
         try {
-            Typeface.createFromFile("/system/fonts/$file")
+            Typeface.createFromFile("/system/fonts/IBMPlexSansCondensed-Medium.otf")
         } catch (_: Exception) {
-            fallback
+            Typeface.DEFAULT_BOLD
         }
+    }
+
+    // Path data copied from the ride app's ic_heart (38x38 viewport, outline drawn with even-odd fill)
+    private const val HEART_VIEWPORT = 38f
+    private const val HEART_GLYPH_INSET = 4f
+    private const val HEART_PATH_DATA =
+        "M29.55,16.936l-10.568,12.43 -10.568,-12.43 -0.007,0.006c-2.141,-2.518 -1.827,-6.301 0.7,-8.433 " +
+            "2.355,-1.99 5.814,-1.852 8.005,0.216 0.16,0.15 0.312,0.31 0.457,0.48 0.882,1.04 1.348,2.293 " +
+            "1.413,3.558 0.064,-1.265 0.53,-2.518 1.412,-3.557 0.146,-0.171 0.297,-0.332 0.457,-0.48 " +
+            "2.191,-2.07 5.65,-2.206 8.005,-0.217 2.527,2.132 2.841,5.915 0.7,8.433l-0.006,-0.006z" +
+            "M30.788,6.236c-3.469,-2.927 -8.515,-2.785 -11.806,0.156 -3.292,-2.94 -8.338,-3.083 -11.807,-0.156 " +
+            "-3.79,3.2 -4.258,8.854 -1.048,12.63l12.855,15.12 12.854,-15.12c3.21,-3.776 2.741,-9.43 -1.048,-12.63z"
+    private val heartPath: Path by lazy { PathParser.createPathFromPathData(HEART_PATH_DATA) }
 
     fun colorFor(index: Int): Int = zoneColors[index.coerceAtMost(zoneColors.lastIndex)]
 
     fun render(
-        width: Int,
-        height: Int,
+        context: Context,
+        config: ViewConfig,
         zoneCount: Int,
         position: ZonePosition?,
         hr: Int?,
         dark: Boolean,
     ): Bitmap {
+        val (width, height) = config.viewSize
         val w = width.coerceAtLeast(1)
         val h = height.coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val d = context.resources.displayMetrics.density
         val ink = if (dark) Color.WHITE else Color.BLACK
 
-        // Header proportions measured from Karoo's own fields. Half-width cells put the title lower
-        // and slightly smaller than full-width ones; side margins are fixed pixels in both.
-        val small = w < SMALL_WIDTH
-        val headerTop = h * if (small) 0.17f else 0.082f
-        val titleCap = h * if (small) 0.15f else 0.17f
-        val iconTop = h * if (small) 0.153f else 0.061f
-        val iconWidth = h * if (small) 0.177f else 0.184f
-        val iconHeight = h * if (small) 0.17f else 0.177f
-        drawHeart(canvas, paint, RectF(SIDE_LEFT, iconTop, SIDE_LEFT + iconWidth, iconTop + iconHeight), KAROO_GREEN)
-        drawNumber(canvas, paint, hr, w, headerTop, headerTop + titleCap, SIDE_RIGHT, ink)
+        val (columns, rows) = config.gridSize
+        val constraints = KarooConstraints.forGrid(columns, rows, config.textSize * d)
+        val headerBottom = drawHeader(context, canvas, paint, w, d, constraints, config.alignment, hr, ink)
 
-        // The pointer straddles the bottom edge of the pill: most of it overlaps the pill, the rest hangs below
-        val pointerHeight = h * 0.13f
-        val rowTop = headerTop + titleCap + h * if (small) 0.07f else 0.085f
-        val rowBottom = h - h * 0.04f - pointerHeight * POINTER_BELOW
-        if (zoneCount > 0 && rowBottom > rowTop) {
-            // Row edges line up with the icon on the left and the number on the right
-            drawZones(canvas, paint, w, zoneCount, position, rowTop, rowBottom, pointerHeight, SIDE_LEFT, SIDE_RIGHT, ink)
+        // The row lines up with the heart glyph on the left and the title's edge on the right
+        val side = HEADER_SIDE_DP * d
+        val rowLeft = side + HEART_GLYPH_INSET * constraints.labelSize / HEART_VIEWPORT
+        val pointerHeight = POINTER_HEIGHT_DP * d
+        val row = RectF(
+            rowLeft,
+            headerBottom + ROW_TOP_GAP_DP * d,
+            w - side,
+            h - ROW_BOTTOM_PAD_DP * d - pointerHeight * POINTER_BELOW,
+        )
+        if (zoneCount > 0 && row.height() > 0 && row.width() > 0) {
+            drawZones(canvas, paint, zoneCount, position, constraints.labelSize, d, row, pointerHeight, ink)
         }
         return bitmap
     }
 
-    /** Draws an outline heart whose outer edge fills [box], like Karoo's own field icons. */
-    private fun drawHeart(canvas: Canvas, paint: Paint, box: RectF, color: Int) {
-        // Unit-square heart: every control point stays inside 0..1 so the curve spans the box exactly
-        val path = Path().apply {
-            moveTo(0.5f, 1f)
-            cubicTo(0.2f, 0.78f, 0f, 0.58f, 0f, 0.3f)
-            cubicTo(0f, 0.12f, 0.13f, 0f, 0.27f, 0f)
-            cubicTo(0.4f, 0f, 0.47f, 0.08f, 0.5f, 0.18f)
-            cubicTo(0.53f, 0.08f, 0.6f, 0f, 0.73f, 0f)
-            cubicTo(0.87f, 0f, 1f, 0.12f, 1f, 0.3f)
-            cubicTo(1f, 0.58f, 0.8f, 0.78f, 0.5f, 1f)
-            close()
+    /** Draws the header and returns its bottom edge. */
+    private fun drawHeader(
+        context: Context,
+        canvas: Canvas,
+        paint: Paint,
+        width: Int,
+        d: Float,
+        constraints: KarooConstraints,
+        alignment: ViewConfig.Alignment,
+        hr: Int?,
+        ink: Int,
+    ): Float {
+        val label = constraints.labelSize
+        val side = HEADER_SIDE_DP * d
+        val iconGap = HEADER_ICON_MARGIN_DP * d
+        val title = TextView(context).apply {
+            typeface = labelTypeface
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, label)
+            setTextColor(ink)
+            includeFontPadding = false
+            setLineSpacing(0f, constraints.lineSpacing ?: HEADER_DEFAULT_LINE_SPACING)
+            setLines(if (constraints.singleLineLabel) 1 else 2)
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            text = hr?.toString() ?: "--"
         }
-        val strokeWidth = box.height() * 0.115f
-        val inner = RectF(box).apply { inset(strokeWidth / 2, strokeWidth / 2) }
-        path.transform(Matrix().apply { setRectToRect(RectF(0f, 0f, 1f, 1f), inner, Matrix.ScaleToFit.FILL) })
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = strokeWidth
-        paint.strokeJoin = Paint.Join.ROUND
-        paint.alpha = 255
-        paint.color = color
-        canvas.drawPath(path, paint)
-        paint.strokeJoin = Paint.Join.MITER
+        title.measure(
+            View.MeasureSpec.makeMeasureSpec((width - 2 * side - label - iconGap).toInt().coerceAtLeast(1), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.UNSPECIFIED,
+        )
+        val titleWidth = title.measuredWidth.toFloat()
+        val titleHeight = title.measuredHeight.toFloat()
+
+        // Icon box and title are both centred vertically in a header as tall as the larger of the two
+        val headerHeight = max(HEADER_MIN_HEIGHT_DP * d, max(label + 2 * iconGap, titleHeight))
+        val iconTop = (headerHeight - label) / 2
+        val titleTop = (headerHeight - titleHeight) / 2 + constraints.labelTranslationY
+
+        // The three arrangements of the ride app's DataHeaderView
+        val (iconLeft, titleLeft) = when (alignment) {
+            ViewConfig.Alignment.LEFT -> (side + titleWidth + iconGap) to side
+            ViewConfig.Alignment.CENTER -> {
+                val start = (width - (label + iconGap + titleWidth)) / 2
+                start to start + label + iconGap
+            }
+            ViewConfig.Alignment.RIGHT -> side to (width - side - titleWidth)
+        }
+
+        drawHeart(canvas, paint, iconLeft, iconTop, label)
+        title.layout(0, 0, titleWidth.toInt(), titleHeight.toInt())
+        canvas.save()
+        canvas.translate(titleLeft, titleTop)
+        title.draw(canvas)
+        canvas.restore()
+        return headerHeight
     }
 
-    private fun drawNumber(canvas: Canvas, paint: Paint, hr: Int?, width: Int, top: Float, bottom: Float, pad: Float, ink: Int) {
-        val text = hr?.toString() ?: "--"
-        paint.style = Paint.Style.FILL
-        paint.color = ink
-        paint.typeface = numberTypeface
-        paint.textAlign = Paint.Align.RIGHT
-        // Size by digit height, then shrink if the text would not fit across the field
-        paint.textSize = 100f
-        val bounds = android.graphics.Rect()
-        paint.getTextBounds("8", 0, 1, bounds)
-        val capHeight = bounds.height().coerceAtLeast(1)
-        var size = 100f * (bottom - top) / capHeight
-        paint.textSize = size
-        val maxWidth = width - 2 * pad
-        val measured = paint.measureText(text)
-        if (measured > maxWidth) {
-            size *= maxWidth / measured
-            paint.textSize = size
+    /** Draws Karoo's own outline heart scaled into a square box of [size] px, like its centerInside icons. */
+    private fun drawHeart(canvas: Canvas, paint: Paint, left: Float, top: Float, size: Float) {
+        val path = Path(heartPath).apply {
+            fillType = Path.FillType.EVEN_ODD
+            transform(
+                Matrix().apply {
+                    postScale(size / HEART_VIEWPORT, size / HEART_VIEWPORT)
+                    postTranslate(left, top)
+                },
+            )
         }
-        canvas.drawText(text, width - pad, bottom, paint)
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.color = KAROO_GREEN
+        canvas.drawPath(path, paint)
     }
 
     private fun drawZones(
         canvas: Canvas,
         paint: Paint,
-        width: Int,
         zoneCount: Int,
         position: ZonePosition?,
-        top: Float,
-        bottom: Float,
+        labelSize: Float,
+        d: Float,
+        row: RectF,
         pointerHeight: Float,
-        padLeft: Float,
-        padRight: Float,
         ink: Int,
     ) {
-        val rowHeight = bottom - top
-        val gap = rowHeight * 0.05f
-        val radius = rowHeight * 0.3f
+        val gap = SEGMENT_GAP_DP * d
         val current = position?.index
         val totalWeight = (zoneCount - 1) + if (current != null) PILL_WEIGHT else 1f
-        val unit = (width - padLeft - padRight - gap * (zoneCount - 1)) / totalWeight
+        val unit = (row.width() - gap * (zoneCount - 1)) / totalWeight
 
-        var left = padLeft
+        var left = row.left
         for (i in 0 until zoneCount) {
             val segmentWidth = unit * if (i == current) PILL_WEIGHT else 1f
-            val rect = RectF(left, top, left + segmentWidth, bottom)
+            val rect = RectF(left, row.top, left + segmentWidth, row.bottom)
+            // Fixed corner radius, capped so narrow segments stay fully rounded instead of distorting
+            val radius = min(SEGMENT_RADIUS_DP * d, min(rect.width(), rect.height()) / 2)
             paint.style = Paint.Style.FILL
             paint.color = colorFor(i)
             paint.alpha = if (i == current) 255 else DIMMED_ALPHA
             canvas.drawRoundRect(rect, radius, radius, paint)
             if (i == current && position != null) {
-                drawPillContent(canvas, paint, rect, i, colorFor(i))
-                drawPointer(canvas, paint, rect, position.fraction, bottom - pointerHeight * (1 - POINTER_BELOW), pointerHeight, ink)
+                drawPillLabel(canvas, paint, rect, i, labelSize, colorFor(i), pointerHeight * (1 - POINTER_BELOW))
+                drawPointer(canvas, paint, rect, position.fraction, row.bottom - pointerHeight * (1 - POINTER_BELOW), pointerHeight, ink)
             }
             left += segmentWidth + gap
         }
     }
 
-    private fun drawPillContent(canvas: Canvas, paint: Paint, rect: RectF, index: Int, fill: Int) {
-        val label = "ZONE ${index + 1}"
-        val short = "Z${index + 1}"
+    private fun drawPillLabel(canvas: Canvas, paint: Paint, rect: RectF, index: Int, labelSize: Float, fill: Int, pointerOverlap: Float) {
         val textColor = if (luminance(fill) > 0.45f) Color.BLACK else Color.WHITE
         paint.style = Paint.Style.FILL
         paint.alpha = 255
         paint.color = textColor
         paint.typeface = labelTypeface
         paint.textAlign = Paint.Align.LEFT
+        paint.textSize = labelSize
 
-        var textSize = rect.height() * 0.4f
-        paint.textSize = textSize
-        var text = label
-        var textWidth = paint.measureText(text)
-        val available = rect.width() * 0.88f
         // "ZONE n" only when it fits with room to spare; smaller fields get "Zn"
+        var text = "ZONE ${index + 1}"
+        var textWidth = paint.measureText(text)
         if (textWidth > rect.width() * 0.75f) {
-            text = short
+            text = "Z${index + 1}"
             textWidth = paint.measureText(text)
         }
+        val available = rect.width() * 0.88f
         if (textWidth > available) {
-            textSize *= available / textWidth
-            paint.textSize = textSize
+            paint.textSize = labelSize * available / textWidth
             textWidth = paint.measureText(text)
         }
-
-        val baseline = rect.centerY() - (paint.ascent() + paint.descent()) / 2
+        // Centre in the part of the pill above the pointer so the two never collide
+        val centerY = (rect.top + rect.bottom - pointerOverlap) / 2
+        val baseline = centerY - (paint.ascent() + paint.descent()) / 2
         canvas.drawText(text, rect.centerX() - textWidth / 2, baseline, paint)
     }
 
     private fun drawPointer(canvas: Canvas, paint: Paint, pill: RectF, fraction: Float, top: Float, height: Float, ink: Int) {
         val halfWidth = height * 0.9f
-        val minX = pill.left + halfWidth + pill.height() * 0.15f
-        val maxX = pill.right - halfWidth - pill.height() * 0.15f
+        val inset = halfWidth + min(pill.height(), pill.width()) * 0.15f
+        val minX = pill.left + inset
+        val maxX = pill.right - inset
         val cx = if (maxX > minX) minX + (maxX - minX) * fraction else pill.centerX()
         val path = Path().apply {
             moveTo(cx, top)

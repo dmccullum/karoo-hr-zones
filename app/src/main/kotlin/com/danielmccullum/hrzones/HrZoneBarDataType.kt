@@ -36,7 +36,6 @@ class HrZoneBarDataType(
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         emitter.onNext(UpdateGraphicConfig(showHeader = false))
-        val (width, height) = config.viewSize
         val dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
         val job = CoroutineScope(Dispatchers.IO).launch {
@@ -60,7 +59,7 @@ class HrZoneBarDataType(
             }
                 .distinctUntilChanged()
                 .collect { (hr, zoneCount, position) ->
-                    val bitmap = ZoneBarRenderer.render(width, height, zoneCount, position, hr, dark)
+                    val bitmap = ZoneBarRenderer.render(context, config, zoneCount, position, hr, dark)
                     val result = glance.compose(context, DpSize.Unspecified) {
                         Image(
                             provider = ImageProvider(bitmap),

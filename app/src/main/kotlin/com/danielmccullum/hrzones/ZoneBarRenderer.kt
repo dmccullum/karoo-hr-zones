@@ -41,23 +41,29 @@ enum class ZoneIcon { HEART, BOLT }
 enum class ZoneBarStyle { ZONE_LABEL, BIG_ZONE, VALUE_IN_PILL }
 
 object ZoneBarRenderer {
-    // Sampled from Karoo's own zone fields; its HR field has five zones and its power field seven,
-    // and they color Z5 differently. Zones beyond the palette reuse the last color.
-    private val hrColors = intArrayOf(
-        Color.rgb(0x60, 0xEE, 0xB2), // mint
-        Color.rgb(0x00, 0xB9, 0x88), // teal green
-        Color.rgb(0xFF, 0xF5, 0x00), // yellow
-        Color.rgb(0xFB, 0x8C, 0x65), // salmon
-        Color.rgb(0xD6, 0x04, 0x04), // red
-    )
-    private val powerColors = intArrayOf(
-        Color.rgb(0x60, 0xEE, 0xB2), // mint
-        Color.rgb(0x00, 0xB9, 0x88), // teal green
-        Color.rgb(0xFF, 0xF5, 0x00), // yellow
-        Color.rgb(0xFB, 0x8C, 0x65), // salmon
-        Color.rgb(0xFE, 0x58, 0x1F), // orange
-        Color.rgb(0xD6, 0x04, 0x04), // red
-        Color.rgb(0xB7, 0x00, 0xA2), // magenta
+    // Karoo's zone colors, from the ride app's climb1..climb7, climb_blue_500 and dark_yellow
+    private val BLUE = Color.rgb(0x23, 0x86, 0xD9)
+    private val MINT = Color.rgb(0x60, 0xEE, 0xB2)
+    private val TEAL = Color.rgb(0x00, 0xB9, 0x88)
+    private val YELLOW = Color.rgb(0xFF, 0xF5, 0x00)
+    private val DARK_YELLOW = Color.rgb(0xFD, 0xC8, 0x4C)
+    private val SALMON = Color.rgb(0xFB, 0x8C, 0x65)
+    private val ORANGE = Color.rgb(0xFE, 0x58, 0x1F)
+    private val RED = Color.rgb(0xD6, 0x04, 0x04)
+    private val MAGENTA = Color.rgb(0xB7, 0x00, 0xA2)
+
+    // The ride app picks a palette by zone count, the same for HR and power. With more than nine zones it
+    // uses the nine-zone palette and colors the extra zones magenta.
+    private val palettes = listOf(
+        intArrayOf(YELLOW),
+        intArrayOf(TEAL, RED),
+        intArrayOf(TEAL, YELLOW, RED),
+        intArrayOf(TEAL, YELLOW, SALMON, RED),
+        intArrayOf(MINT, TEAL, YELLOW, SALMON, RED),
+        intArrayOf(MINT, TEAL, YELLOW, SALMON, RED, MAGENTA),
+        intArrayOf(MINT, TEAL, YELLOW, SALMON, ORANGE, RED, MAGENTA),
+        intArrayOf(BLUE, MINT, TEAL, YELLOW, SALMON, ORANGE, RED, MAGENTA),
+        intArrayOf(BLUE, MINT, TEAL, YELLOW, DARK_YELLOW, SALMON, ORANGE, RED, MAGENTA),
     )
     private const val DIMMED_ALPHA = 110
     private const val PILL_WEIGHT = 3.2f
@@ -119,10 +125,8 @@ object ZoneBarRenderer {
     private val heartBounds: RectF by lazy { RectF().also { heartPath.computeBounds(it, true) } }
     private val boltBounds: RectF by lazy { RectF().also { boltPath.computeBounds(it, true) } }
 
-    private fun colorFor(icon: ZoneIcon, index: Int): Int {
-        val colors = if (icon == ZoneIcon.BOLT) powerColors else hrColors
-        return colors[index.coerceAtMost(colors.lastIndex)]
-    }
+    private fun colorFor(zoneCount: Int, index: Int): Int =
+        palettes[zoneCount.coerceIn(1, palettes.size) - 1].getOrElse(index) { MAGENTA }
 
     fun render(
         context: Context,
@@ -297,11 +301,11 @@ object ZoneBarRenderer {
             // Fixed corner radius, capped so narrow segments stay fully rounded instead of distorting
             val radius = min(SEGMENT_RADIUS_DP * d, min(rect.width(), rect.height()) / 2)
             paint.style = Paint.Style.FILL
-            paint.color = colorFor(icon, i)
+            paint.color = colorFor(zoneCount, i)
             paint.alpha = if (i == current) 255 else DIMMED_ALPHA
             canvas.drawRoundRect(rect, radius, radius, paint)
             if (i == current && position != null) {
-                val fill = colorFor(icon, i)
+                val fill = colorFor(zoneCount, i)
                 val pointerOverlap = pointerHeight * (1 - POINTER_BELOW)
                 // Keep clear of the pointer
                 val area = RectF(rect.left, rect.top, rect.right, rect.bottom - pointerOverlap)

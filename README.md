@@ -8,7 +8,7 @@ Each comes in three styles:
 - **Zone Bar Big**: the value in the header and a large zone number in the current zone.
 - **Zone Bar Full**: no header; the bars use the full height and the value sits inside the current zone.
 
-A marker under the current zone shows how far through it you are.
+A marker under the current zone shows how far through it you are. Zone colors match Karoo's own zone fields, which pick them by how many zones you have (one to nine), the same for HR and power.
 
 <p align="center">
   <img src="docs/karoo-hr-zones.jpg" alt="The HR Zone Bar field on a Karoo 3, showing ZONE 1 at 111 bpm" width="320">
@@ -44,7 +44,7 @@ Requires JDK 17 and the Android SDK (platform 35). Android Studio is the easiest
 
 - `HrZonesExtension.kt`: registers the HR and power fields in each style
 - `ZoneBarDataType.kt`: streams the source value (heart rate or 3-second average power) and renders the field, including the editor preview sweep
-- `ZoneBarRenderer.kt`: draws the header, zone segments, pill, value and pointer for each style; the HR and power zone colors are set here
+- `ZoneBarRenderer.kt`: draws the header, zone segments, pill, value and pointer for each style; Karoo's zone colors for one to nine zones are set here
 - `KarooLayout.kt`: Karoo's own header text and icon sizes for each field size
 - `ZonePosition.kt`: maps a value to a zone index and position within that zone
 

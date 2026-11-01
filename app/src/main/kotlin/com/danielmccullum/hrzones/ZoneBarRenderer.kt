@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextUtils
@@ -32,19 +33,35 @@ import kotlin.math.min
 /** Header icon drawn next to the value. */
 enum class ZoneIcon { HEART, BOLT }
 
+/**
+ * [ZONE_LABEL] puts Karoo's header above the bars and labels the pill "ZONE n". [BIG_ZONE] keeps the header
+ * and shows the icon and zone number as large as fit in the pill. [VALUE_IN_PILL] drops the header, gives
+ * the bars the full height and shows the icon and value inside the current zone's pill.
+ */
+enum class ZoneBarStyle { ZONE_LABEL, BIG_ZONE, VALUE_IN_PILL }
+
 object ZoneBarRenderer {
-    // Z1..Z5 sampled from Karoo's own HR zone field, Z6 and Z7 added for power; zones beyond seven reuse the last color
-    private val zoneColors = intArrayOf(
+    // Sampled from Karoo's own zone fields; its HR field has five zones and its power field seven,
+    // and they color Z5 differently. Zones beyond the palette reuse the last color.
+    private val hrColors = intArrayOf(
         Color.rgb(0x60, 0xEE, 0xB2), // mint
         Color.rgb(0x00, 0xB9, 0x88), // teal green
         Color.rgb(0xFF, 0xF5, 0x00), // yellow
         Color.rgb(0xFB, 0x8C, 0x65), // salmon
         Color.rgb(0xD6, 0x04, 0x04), // red
-        Color.rgb(0x9B, 0x3D, 0xE0), // purple
-        Color.rgb(0xA8, 0x00, 0x6E), // deep magenta
+    )
+    private val powerColors = intArrayOf(
+        Color.rgb(0x60, 0xEE, 0xB2), // mint
+        Color.rgb(0x00, 0xB9, 0x88), // teal green
+        Color.rgb(0xFF, 0xF5, 0x00), // yellow
+        Color.rgb(0xFB, 0x8C, 0x65), // salmon
+        Color.rgb(0xFE, 0x58, 0x1F), // orange
+        Color.rgb(0xD6, 0x04, 0x04), // red
+        Color.rgb(0xB7, 0x00, 0xA2), // magenta
     )
     private const val DIMMED_ALPHA = 110
     private const val PILL_WEIGHT = 3.2f
+    private const val VALUE_PILL_WEIGHT = 4f
     private const val POINTER_BELOW = 0.45f
     private val KAROO_GREEN = Color.rgb(18, 154, 94)
 
@@ -60,6 +77,15 @@ object ZoneBarRenderer {
     private const val SEGMENT_GAP_DP = 2.2f
     private const val SEGMENT_RADIUS_DP = 13f
     private const val POINTER_HEIGHT_DP = 10f
+
+    // Value inside the pill: share of the space it may fill, and the icon gap as a share of the digit height
+    private const val VALUE_FILL_WIDTH = 0.86f
+    private const val VALUE_FILL_HEIGHT = 0.78f
+    private const val VALUE_ICON_GAP = 0.3f
+    private const val VALUE_REFERENCE_SIZE = 100f
+
+    // Values are sized for at least three digits so the number doesn't jump as it gains one
+    private const val VALUE_MIN_DIGITS = 3
 
     // Karoo's own font ships in the system image
     private val labelTypeface: Typeface by lazy {
@@ -89,7 +115,14 @@ object ZoneBarRenderer {
     private const val BOLT_STROKE = 3f
     private val boltPath: Path by lazy { PathParser.createPathFromPathData(BOLT_PATH_DATA) }
 
-    fun colorFor(index: Int): Int = zoneColors[index.coerceAtMost(zoneColors.lastIndex)]
+    // Glyph extents inside the viewport, so a glyph can be sized to the digits next to it
+    private val heartBounds: RectF by lazy { RectF().also { heartPath.computeBounds(it, true) } }
+    private val boltBounds: RectF by lazy { RectF().also { boltPath.computeBounds(it, true) } }
+
+    private fun colorFor(icon: ZoneIcon, index: Int): Int {
+        val colors = if (icon == ZoneIcon.BOLT) powerColors else hrColors
+        return colors[index.coerceAtMost(colors.lastIndex)]
+    }
 
     fun render(
         context: Context,
@@ -98,6 +131,7 @@ object ZoneBarRenderer {
         position: ZonePosition?,
         value: Int?,
         icon: ZoneIcon,
+        style: ZoneBarStyle,
         dark: Boolean,
     ): Bitmap {
         val (width, height) = config.viewSize
@@ -111,20 +145,30 @@ object ZoneBarRenderer {
 
         val (columns, rows) = config.gridSize
         val constraints = KarooConstraints.forGrid(columns, rows, config.textSize * d)
-        val headerBottom = drawHeader(context, canvas, paint, w, d, constraints, config.alignment, value, icon, ink)
-
-        // The row lines up with the icon glyph on the left and the title's edge on the right
         val side = HEADER_SIDE_DP * d
-        val rowLeft = side + ICON_GLYPH_INSET * constraints.labelSize / ICON_VIEWPORT
+        val rowTop: Float
+        val rowLeft: Float
+        if (style != ZoneBarStyle.VALUE_IN_PILL) {
+            val headerBottom = drawHeader(context, canvas, paint, w, d, constraints, config.alignment, value, icon, ink)
+            // The row lines up with the icon glyph on the left and the title's edge on the right
+            rowTop = headerBottom + ROW_TOP_GAP_DP * d
+            rowLeft = side + ICON_GLYPH_INSET * constraints.labelSize / ICON_VIEWPORT
+        } else {
+            rowTop = ROW_BOTTOM_PAD_DP * d
+            rowLeft = side
+        }
         val pointerHeight = POINTER_HEIGHT_DP * d
-        val row = RectF(
-            rowLeft,
-            headerBottom + ROW_TOP_GAP_DP * d,
-            w - side,
-            h - ROW_BOTTOM_PAD_DP * d - pointerHeight * POINTER_BELOW,
-        )
-        if (zoneCount > 0 && row.height() > 0 && row.width() > 0) {
-            drawZones(canvas, paint, zoneCount, position, constraints.labelSize, d, row, pointerHeight, ink)
+        val row = RectF(rowLeft, rowTop, w - side, h - ROW_BOTTOM_PAD_DP * d - pointerHeight * POINTER_BELOW)
+        if (row.height() <= 0 || row.width() <= 0) return bitmap
+
+        // The value never grows past the size Karoo uses for numbers in this field
+        val maxValueSize = config.textSize * d
+        if (zoneCount > 0) {
+            drawZones(canvas, paint, icon, style, zoneCount, position, value, constraints.labelSize, maxValueSize, d, row, pointerHeight, ink)
+        }
+        // Without a current zone there is no pill, so the value goes over the bars
+        if (style == ZoneBarStyle.VALUE_IN_PILL && (zoneCount == 0 || position == null)) {
+            drawValue(canvas, paint, icon, value?.toString() ?: "--", VALUE_MIN_DIGITS, row, ink, maxValueSize)
         }
         return bitmap
     }
@@ -189,19 +233,31 @@ object ZoneBarRenderer {
 
     /** Draws the header icon in Karoo's green, scaled into a square box of [size] px like its centerInside icons. */
     private fun drawIcon(canvas: Canvas, paint: Paint, icon: ZoneIcon, left: Float, top: Float, size: Float) {
-        val scale = size / ICON_VIEWPORT
+        drawIconPath(canvas, paint, icon, size / ICON_VIEWPORT, left, top, KAROO_GREEN)
+    }
+
+    /** Draws the icon's glyph [height] px tall with its top-left corner at [left], [top]. */
+    private fun drawGlyph(canvas: Canvas, paint: Paint, icon: ZoneIcon, left: Float, top: Float, height: Float, color: Int) {
+        val bounds = glyphBounds(icon)
+        val scale = height / bounds.height()
+        drawIconPath(canvas, paint, icon, scale, left - bounds.left * scale, top - bounds.top * scale, color)
+    }
+
+    private fun glyphBounds(icon: ZoneIcon): RectF = if (icon == ZoneIcon.HEART) heartBounds else boltBounds
+
+    private fun drawIconPath(canvas: Canvas, paint: Paint, icon: ZoneIcon, scale: Float, dx: Float, dy: Float, color: Int) {
         val source = if (icon == ZoneIcon.HEART) heartPath else boltPath
         val path = Path(source).apply {
             if (icon == ZoneIcon.HEART) fillType = Path.FillType.EVEN_ODD
             transform(
                 Matrix().apply {
                     postScale(scale, scale)
-                    postTranslate(left, top)
+                    postTranslate(dx, dy)
                 },
             )
         }
         paint.alpha = 255
-        paint.color = KAROO_GREEN
+        paint.color = color
         if (icon == ZoneIcon.HEART) {
             paint.style = Paint.Style.FILL
         } else {
@@ -216,9 +272,13 @@ object ZoneBarRenderer {
     private fun drawZones(
         canvas: Canvas,
         paint: Paint,
+        icon: ZoneIcon,
+        style: ZoneBarStyle,
         zoneCount: Int,
         position: ZonePosition?,
+        value: Int?,
         labelSize: Float,
+        maxValueSize: Float,
         d: Float,
         row: RectF,
         pointerHeight: Float,
@@ -226,21 +286,32 @@ object ZoneBarRenderer {
     ) {
         val gap = SEGMENT_GAP_DP * d
         val current = position?.index
-        val totalWeight = (zoneCount - 1) + if (current != null) PILL_WEIGHT else 1f
+        val pillWeight = if (style == ZoneBarStyle.VALUE_IN_PILL) VALUE_PILL_WEIGHT else PILL_WEIGHT
+        val totalWeight = (zoneCount - 1) + if (current != null) pillWeight else 1f
         val unit = (row.width() - gap * (zoneCount - 1)) / totalWeight
 
         var left = row.left
         for (i in 0 until zoneCount) {
-            val segmentWidth = unit * if (i == current) PILL_WEIGHT else 1f
+            val segmentWidth = unit * if (i == current) pillWeight else 1f
             val rect = RectF(left, row.top, left + segmentWidth, row.bottom)
             // Fixed corner radius, capped so narrow segments stay fully rounded instead of distorting
             val radius = min(SEGMENT_RADIUS_DP * d, min(rect.width(), rect.height()) / 2)
             paint.style = Paint.Style.FILL
-            paint.color = colorFor(i)
+            paint.color = colorFor(icon, i)
             paint.alpha = if (i == current) 255 else DIMMED_ALPHA
             canvas.drawRoundRect(rect, radius, radius, paint)
             if (i == current && position != null) {
-                drawPillLabel(canvas, paint, rect, i, labelSize, colorFor(i), pointerHeight * (1 - POINTER_BELOW))
+                val fill = colorFor(icon, i)
+                val pointerOverlap = pointerHeight * (1 - POINTER_BELOW)
+                // Keep clear of the pointer
+                val area = RectF(rect.left, rect.top, rect.right, rect.bottom - pointerOverlap)
+                when (style) {
+                    ZoneBarStyle.ZONE_LABEL -> drawPillLabel(canvas, paint, rect, i, labelSize, fill, pointerOverlap)
+                    ZoneBarStyle.BIG_ZONE ->
+                        drawValue(canvas, paint, icon, "${i + 1}", 1, area, contrastOn(fill), maxValueSize)
+                    ZoneBarStyle.VALUE_IN_PILL ->
+                        drawValue(canvas, paint, icon, value?.toString() ?: "--", VALUE_MIN_DIGITS, area, contrastOn(fill), maxValueSize)
+                }
                 drawPointer(canvas, paint, rect, position.fraction, row.bottom - pointerHeight * (1 - POINTER_BELOW), pointerHeight, ink)
             }
             left += segmentWidth + gap
@@ -248,10 +319,9 @@ object ZoneBarRenderer {
     }
 
     private fun drawPillLabel(canvas: Canvas, paint: Paint, rect: RectF, index: Int, labelSize: Float, fill: Int, pointerOverlap: Float) {
-        val textColor = if (luminance(fill) > 0.45f) Color.BLACK else Color.WHITE
         paint.style = Paint.Style.FILL
         paint.alpha = 255
-        paint.color = textColor
+        paint.color = contrastOn(fill)
         paint.typeface = labelTypeface
         paint.textAlign = Paint.Align.LEFT
         paint.textSize = labelSize
@@ -272,6 +342,66 @@ object ZoneBarRenderer {
         val centerY = (rect.top + rect.bottom - pointerOverlap) / 2
         val baseline = centerY - (paint.ascent() + paint.descent()) / 2
         canvas.drawText(text, rect.centerX() - textWidth / 2, baseline, paint)
+    }
+
+    /**
+     * Draws the icon and [text] as large as fit in [area], centred, with the text sized as if it had at least
+     * [minDigits] digits. The icon sits beside the text or above it, whichever lets the text be bigger, so
+     * narrow tall pills stack and short wide ones don't.
+     */
+    private fun drawValue(
+        canvas: Canvas,
+        paint: Paint,
+        icon: ZoneIcon,
+        text: String,
+        minDigits: Int,
+        area: RectF,
+        color: Int,
+        maxSize: Float,
+    ) {
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.typeface = labelTypeface
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = VALUE_REFERENCE_SIZE
+
+        // Measured at a reference size, then everything scales together
+        val digitBounds = Rect()
+        paint.getTextBounds("8", 0, 1, digitBounds)
+        val digitHeight = digitBounds.height().toFloat()
+        val textWidth = max(paint.measureText(text), paint.measureText("8".repeat(max(text.length, minDigits))))
+        val glyph = glyphBounds(icon)
+        val iconWidth = glyph.width() * digitHeight / glyph.height()
+        val gap = digitHeight * VALUE_ICON_GAP
+
+        val availableWidth = area.width() * VALUE_FILL_WIDTH
+        val availableHeight = area.height() * VALUE_FILL_HEIGHT
+        val inlineScale = min(availableWidth / (iconWidth + gap + textWidth), availableHeight / digitHeight)
+        val stackedScale = min(availableWidth / max(iconWidth, textWidth), availableHeight / (2 * digitHeight + gap))
+        val stacked = stackedScale > inlineScale
+        val scale = min(if (stacked) stackedScale else inlineScale, maxSize / VALUE_REFERENCE_SIZE)
+        if (scale <= 0f) return
+
+        paint.textSize = VALUE_REFERENCE_SIZE * scale
+        val width = paint.measureText(text)
+        val h = digitHeight * scale
+        val iw = iconWidth * scale
+        val g = gap * scale
+        val baselineOffset = digitBounds.bottom * scale
+        if (stacked) {
+            val top = area.centerY() - (2 * h + g) / 2
+            drawGlyph(canvas, paint, icon, area.centerX() - iw / 2, top, h, color)
+            paint.style = Paint.Style.FILL
+            paint.color = color
+            canvas.drawText(text, area.centerX() - width / 2, top + 2 * h + g - baselineOffset, paint)
+        } else {
+            val left = area.centerX() - (iw + g + width) / 2
+            val top = area.centerY() - h / 2
+            drawGlyph(canvas, paint, icon, left, top, h, color)
+            paint.style = Paint.Style.FILL
+            paint.color = color
+            canvas.drawText(text, left + iw + g, top + h - baselineOffset, paint)
+        }
     }
 
     private fun drawPointer(canvas: Canvas, paint: Paint, pill: RectF, fraction: Float, top: Float, height: Float, ink: Int) {
@@ -298,6 +428,8 @@ object ZoneBarRenderer {
         canvas.drawPath(path, paint)
         paint.strokeJoin = Paint.Join.MITER
     }
+
+    private fun contrastOn(fill: Int): Int = if (luminance(fill) > 0.45f) Color.BLACK else Color.WHITE
 
     private fun luminance(color: Int): Float =
         (0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color)) / 255f

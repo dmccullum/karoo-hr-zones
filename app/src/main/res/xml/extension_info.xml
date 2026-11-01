@@ -15,4 +15,28 @@
         graphical="true"
         icon="@drawable/ic_power_zones"
         typeId="power-zone-bar" />
+    <DataType
+        description="@string/hr_zones_big_zone_description"
+        displayName="@string/hr_zones_big_zone"
+        graphical="true"
+        icon="@drawable/ic_hr_zones"
+        typeId="hr-zone-bar-big-zone" />
+    <DataType
+        description="@string/power_zones_big_zone_description"
+        displayName="@string/power_zones_big_zone"
+        graphical="true"
+        icon="@drawable/ic_power_zones"
+        typeId="power-zone-bar-big-zone" />
+    <DataType
+        description="@string/hr_zones_no_header_description"
+        displayName="@string/hr_zones_no_header"
+        graphical="true"
+        icon="@drawable/ic_hr_zones"
+        typeId="hr-zone-bar-no-header" />
+    <DataType
+        description="@string/power_zones_no_header_description"
+        displayName="@string/power_zones_no_header"
+        graphical="true"
+        icon="@drawable/ic_power_zones"
+        typeId="power-zone-bar-no-header" />
 </ExtensionInfo>

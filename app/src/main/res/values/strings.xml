@@ -1,7 +1,15 @@
 <resources>
     <string name="app_name">Zone Bars</string>
     <string name="hr_zones">HR Zone Bar</string>
-    <string name="hr_zones_description">Heart rate with a colored bar for each zone and a marker showing your position in the current zone</string>
+    <string name="hr_zones_description">Heart rate zones with your position in the zone</string>
     <string name="power_zones">Power Zone Bar</string>
-    <string name="power_zones_description">3-second average power with a colored bar for each zone and a marker showing your position in the current zone</string>
+    <string name="power_zones_description">3s power zones with your position in the zone</string>
+    <string name="hr_zones_big_zone">HR Zone Bar Big</string>
+    <string name="hr_zones_big_zone_description">Heart rate zones with a large zone number</string>
+    <string name="power_zones_big_zone">Power Zone Bar Big</string>
+    <string name="power_zones_big_zone_description">3s power zones with a large zone number</string>
+    <string name="hr_zones_no_header">HR Zone Bar Full</string>
+    <string name="hr_zones_no_header_description">Full-height heart rate zones with BPM inside</string>
+    <string name="power_zones_no_header">Power Zone Bar Full</string>
+    <string name="power_zones_no_header_description">Full-height 3s power zones with watts inside</string>
 </resources>

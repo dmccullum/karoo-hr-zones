@@ -35,6 +35,7 @@ class ZoneBarDataType(
     private val streamTypeId: String,
     private val zonesOf: (UserProfile) -> List<UserProfile.Zone>,
     private val icon: ZoneIcon,
+    private val style: ZoneBarStyle,
     private val previewRange: IntRange,
     private val previewStep: Int,
 ) : DataTypeImpl(extension, typeId) {
@@ -65,7 +66,7 @@ class ZoneBarDataType(
             }
                 .distinctUntilChanged()
                 .collect { (value, zoneCount, position) ->
-                    val bitmap = ZoneBarRenderer.render(context, config, zoneCount, position, value, icon, dark)
+                    val bitmap = ZoneBarRenderer.render(context, config, zoneCount, position, value, icon, style, dark)
                     val result = glance.compose(context, DpSize.Unspecified) {
                         Image(
                             provider = ImageProvider(bitmap),

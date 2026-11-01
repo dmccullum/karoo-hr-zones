@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "karoo-hr-zones"
+rootProject.name = "karoo-zone-bars"
 include(":app")
